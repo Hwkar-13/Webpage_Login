@@ -1,65 +1,69 @@
-import telegram
-from telegram.ext import Updater, CommandHandler
+import telebot
 import nmap
 
-# Initialize the Telegram bot
+# Replace with your Telegram Bot API token
 TOKEN = '6042699403:AAHXmCfMUTk5FQKRRNqEldgRwEwwFXCC_60'
-bot = telegram.Bot(token=TOKEN)
 
-# Define the network scanning function
-def scan_network(ip_address):
-    nm = nmap.PortScanner()
-    nm.scan(ip_address, arguments='-sS -O')
-    result = ''
-    for host in nm.all_hosts():
-        result += f"Host : {host}\n"
-        result += f"State : {nm[host].state()}\n"
-        for proto in nm[host].all_protocols():
-            result += "Protocol : {}\n".format(proto)
-            lport = nm[host][proto].keys()
-            for port in lport:
-                result += f"port : {port}\tstate : {nm[host][proto][port]['state']}\n"
-    return result
+# Initialize the Telegram Bot
+bot = telebot.TeleBot(TOKEN)
 
-# Define the command handlers
-def start(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Hi! I'm a network scanner bot. Use /help to see the available commands.")
+# Initialize the Nmap scanner
+scanner = nmap.PortScanner()
 
-def help(update, context):
-    help_text = "/scan [ip_address] - Perform a network scan on the specified IP address.\n"
-    help_text += "/status - Check the status of the bot.\n"
-    help_text += "/restart - Restart the bot.\n"
-    help_text += "/stop - Stop the bot."
-    context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
+# Define a function to handle the /start command
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "Welcome to the network scanner bot! Use /help to see the available commands.")
 
-def scan(update, context):
-    ip_address = context.args[0]
-    result = scan_network(ip_address)
-    filename = f"{ip_address}_scan_result.txt"
-    with open(filename, "w") as f:
-        f.write(result)
-    context.bot.send_document(chat_id=update.effective_chat.id, document=open(filename, 'rb'))
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Scan result saved in file: " + filename)
+# Define a function to handle the /help command
+@bot.message_handler(commands=['help'])
+def help(message):
+    bot.reply_to(message, "/status - Check the status of the network scan\n/scan <IP_ADDRESS> - Start a network scan on the specified IP address\n/stop - Stop the current network scan\n/restart - Restart the current network scan")
 
-def status(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Bot is running.")
+# Define a function to handle the /status command
+@bot.message_handler(commands=['status'])
+def status(message):
+    if scanner.is_scanning():
+        bot.reply_to(message, "The network scan is currently running.")
+    else:
+        bot.reply_to(message, "The network scan is not currently running.")
 
-def stop(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Bot stopped.")
-    updater.stop()
+# Define a function to handle the /scan command
+@bot.message_handler(commands=['scan'])
+def scan(message):
+    try:
+        # Extract the IP address from the command
+        ip_address = message.text.split()[1]
+        bot.reply_to(message, f"Starting network scan on {ip_address}...")
+        
+        # Scan the network
+        scanner.scan(ip_address, arguments='-sS -T4')
 
-def restart(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Bot restarting...")
-    updater.start_polling()
+        # Send the scan results to the user
+        bot.reply_to(message, scanner[ip_address].all_protocols())
+        bot.reply_to(message, scanner[ip_address]['tcp'])
+    except:
+        bot.reply_to(message, "Invalid command syntax. Use /scan <IP_ADDRESS> to start a network scan.")
 
-# Initialize the command handlers and start the bot
-updater = Updater(token=TOKEN, use_context=True)
-dispatcher = updater.dispatcher
-dispatcher.add_handler(CommandHandler('start', start))
-dispatcher.add_handler(CommandHandler('help', help))
-dispatcher.add_handler(CommandHandler('scan', scan))
-dispatcher.add_handler(CommandHandler('status', status))
-dispatcher.add_handler(CommandHandler('stop', stop))
-dispatcher.add_handler(CommandHandler('restart', restart))
-updater.start_polling()
-updater.idle()
+# Define a function to handle the /stop command
+@bot.message_handler(commands=['stop'])
+def stop(message):
+    if scanner.is_scanning():
+        scanner.stop()
+        bot.reply_to(message, "The network scan has been stopped.")
+    else:
+        bot.reply_to(message, "The network scan is not currently running.")
+
+# Define a function to handle the /restart command
+@bot.message_handler(commands=['restart'])
+def restart(message):
+    if scanner.is_scanning():
+        scanner.stop()
+        bot.reply_to(message, "The network scan has been stopped. Restarting...")
+        scanner.scan(scanner.all_hosts(), arguments='-sS -T4')
+        bot.reply_to(message, "The network scan has been restarted.")
+    else:
+        bot.reply_to(message, "The network scan is not currently running.")
+
+# Start the Telegram Bot
+bot.polling()
